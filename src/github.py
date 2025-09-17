@@ -2,14 +2,13 @@ from __future__ import annotations
 import requests
 from typing import Tuple
 
-from .settings import GITHUB_API_BASE, GITHUB_TOKEN
+from .settings import GITHUB_API_BASE
 from .security import get_installation_token
 
 def _headers(accept: str, token: str | None = None) -> dict:
     h = {"User-Agent": "PullSense/1.0", "Accept": accept}
-    auth = token or (GITHUB_TOKEN or None)
-    if auth:
-        h["Authorization"] = f"Bearer {auth}"
+    if token:
+        h["Authorization"] = f"Bearer {token}"
     return h
 
 def get_pr_title(owner: str, repo: str, pr_number: int, token: str | None = None) -> str:
@@ -25,7 +24,6 @@ def get_pr_diff(owner: str, repo: str, pr_number: int, token: str | None = None)
     return r.text
 
 def get_pr_title_and_diff(owner: str, repo: str, pr_number: int) -> Tuple[str, str]:
-    # Prefer installation token for private repos / proper scoping
     token = get_installation_token(owner, repo)
     title = get_pr_title(owner, repo, pr_number, token)
     diff = get_pr_diff(owner, repo, pr_number, token)
