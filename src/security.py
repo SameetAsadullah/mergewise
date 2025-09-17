@@ -10,7 +10,7 @@ from .settings import (
 def verify_github_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
     """Verify X-Hub-Signature-256 using the shared webhook secret."""
     if not GITHUB_WEBHOOK_SECRET:
-        return True  # dev mode: skip verification
+        return True
     mac = hmac.new(GITHUB_WEBHOOK_SECRET.encode(), msg=raw_body, digestmod=hashlib.sha256)
     expected = "sha256=" + mac.hexdigest()
     return hmac.compare_digest(expected, signature_header or "")
