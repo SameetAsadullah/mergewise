@@ -1,82 +1,122 @@
 from __future__ import annotations
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
+import re
 
-def render_markdown_comment(result: Dict[str, Any]) -> str:
-    files = result.get("files", []) or []
-    # counts for header badges
-    def _count(level: str) -> int:
-        return sum(1 for f in files for x in (f.get("findings") or []) if str(x.get("severity","")).upper() == level)
+HUNK_RE = re.compile(r'^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,(\d+))?\s+@@')
 
-    blockers = _count("BLOCKER")
-    warnings = _count("WARNING")
-    nits     = _count("NIT")
+def _newfile_lines_from_diff(file_diff: str) -> List[Tuple[int, str]]:
+    """
+    Return a list of (new_line_number, content_without_prefix) for all lines
+    that exist in the *new* file, i.e. lines starting with ' ' (context) or '+' (added).
+    Removed '-' lines do not advance the new file line counter.
+    """
+    lines_map: List[Tuple[int, str]] = []
+    new_ln = None
 
-    sev_emoji = {"BLOCKER": "🚫", "WARNING": "⚠️", "NIT": "💡"}
+    for raw in file_diff.splitlines():
+        if raw.startswith('@@'):
+            m = HUNK_RE.match(raw)
+            if m:
+                start = int(m.group(1))
+                new_ln = start
+            continue
+        if new_ln is None:
+            continue  # before first hunk header
 
-    def _truncate(s: str, n: int) -> str:
-        return s if s is None or len(s) <= n else s[: n - 1] + "…"
+        if raw.startswith(' '):
+            lines_map.append((new_ln, raw[1:]))
+            new_ln += 1
+        elif raw.startswith('+'):
+            lines_map.append((new_ln, raw[1:]))
+            new_ln += 1
+        elif raw.startswith('-'):
+            # do not increment new_ln
+            continue
+        else:
+            # other metadata lines; ignore
+            continue
+    return lines_map
 
-    def _safe_code(s: str | None) -> str:
-        # avoid breaking markdown fences
-        if not s:
-            return ""
-        return s.replace("```", "`` `")
+def _locate_anchor_line(file_diff: str, anchor: Optional[str]) -> Optional[int]:
+    """
+    Find the new-file line number for the given anchor text.
+    First try exact match; fall back to a whitespace-normalized match.
+    """
+    if not anchor:
+        return None
+    rows = _newfile_lines_from_diff(file_diff)
+    # exact
+    for ln, text in rows:
+        if text == anchor:
+            return ln
+    # relaxed: collapse inner whitespace
+    norm = " ".join(anchor.split())
+    for ln, text in rows:
+        if " ".join(text.split()) == norm:
+            return ln
+    return None
 
-    # --- Header ---
-    lines: List[str] = []
-    lines.append("### 🤖 MergeWise Code Review")
-    lines.append("")
-    lines.append(
-        f"**Summary:** {result.get('summary','')}"
-        f" &nbsp;&nbsp;|&nbsp;&nbsp; **{sev_emoji['BLOCKER']} Blockers:** {blockers}"
-        f" &nbsp;&nbsp; **{sev_emoji['WARNING']} Warnings:** {warnings}"
-        f" &nbsp;&nbsp; **{sev_emoji['NIT']} Nits:** {nits}"
+def result_to_check_conclusion(result: Dict[str, Any]) -> str:
+    any_blocker = any(
+        (x.get("severity","").upper()=="BLOCKER")
+        for f in (result.get("files") or [])
+        for x in (f.get("findings") or [])
     )
-    lines.append("")
+    return "failure" if any_blocker else "neutral"
 
-    # --- Quick index of files with issues ---
-    files_with_issues = [f for f in files if f.get("findings")]
-    if files_with_issues:
-        lines.append("<details><summary><strong>Files with issues</strong></summary>")
-        for f in files_with_issues:
-            fname = f.get("file", "(unknown)")
-            count = len(f.get("findings") or [])
-            lines.append(f"- `{fname}` — {count} finding(s)")
-        lines.append("</details>")
-        lines.append("")
+def build_check_summary_markdown(result: Dict[str, Any]) -> str:
+    files = result.get("files", []) or []
+    blockers = sum(1 for f in files for x in (f.get("findings") or []) if (x.get("severity","").upper()=="BLOCKER"))
+    warnings = sum(1 for f in files for x in (f.get("findings") or []) if (x.get("severity","").upper()=="WARNING"))
+    nits     = sum(1 for f in files for x in (f.get("findings") or []) if (x.get("severity","").upper()=="NIT"))
+    return (
+        f"**{result.get('summary','')}**\n\n"
+        f"- Blockers: {blockers}\n- Warnings: {warnings}\n- Nits: {nits}\n\n"
+        "Use the Annotations tab to jump to each finding."
+    )
 
-    # --- Per-file sections ---
-    for f in files_with_issues:
-        fname = f.get("file", "(unknown)")
-        fsummary = _truncate(f.get("summary","").strip(), 300)
-        lines.append(f"#### `{fname}`")
-        if fsummary:
-            lines.append(f"_Summary:_ {fsummary}")
-        findings = f.get("findings") or []
-        for i, x in enumerate(findings, 1):
-            sev = str(x.get("severity","")).upper()
-            emoji = sev_emoji.get(sev, "•")
-            title = x.get("title","").strip() or "(no title)"
-            rng = x.get("lines","") or "—"
-            why = _truncate(x.get("rationale","").strip(), 800)
-            fix = _truncate(x.get("recommendation","").strip(), 800)
-            patch = _safe_code(x.get("patch"))
+def build_github_annotations(result: Dict[str, Any], per_file_diffs: Dict[str, str]) -> List[Dict[str, Any]]:
+    """
+    Convert findings to GitHub Check Run annotations using anchor→line mapping.
+    `per_file_diffs` should map file path -> that file's unified diff chunk.
+    """
+    level_map = {"BLOCKER": "failure", "WARNING": "warning", "NIT": "notice"}
+    anns: List[Dict[str, Any]] = []
+    for f in (result.get("files") or []):
+        path = f.get("file", "")
+        file_diff = per_file_diffs.get(path, "")
+        for x in (f.get("findings") or []):
+            sev = (x.get("severity") or "").upper()
+            lvl = level_map.get(sev, "notice")
+            # prefer anchor mapping; fall back to parsed "lines"
+            anchor_ln = _locate_anchor_line(file_diff, x.get("anchor"))
+            if anchor_ln is not None:
+                start_line = end_line = anchor_ln
+            else:
+                rng = str(x.get("lines") or "").strip()
+                if "-" in rng:
+                    try:
+                        s, e = rng.split("-", 1)
+                        start_line = int(s); end_line = int(e)
+                    except Exception:
+                        start_line = end_line = 1
+                else:
+                    try:
+                        start_line = end_line = int(rng) if rng else 1
+                    except Exception:
+                        start_line = end_line = 1
 
-            lines.append(f"- {emoji} **{sev}** — **{title}** _(lines {rng})_")
-            if why:
-                lines.append(f"  - **Why:** {why}")
-            if fix:
-                lines.append(f"  - **Fix:** {fix}")
-            if patch:
-                lines.append("  <details><summary>Suggested patch</summary>\n\n```diff")
-                lines.append(patch)
-                lines.append("```\n</details>")
-        lines.append("")  # spacing between files
+            title = (x.get("title") or f"{sev} in {path}")[:255]
+            why = (x.get("rationale") or "").strip()
+            fix = (x.get("recommendation") or "").strip()
+            message = (why + ("\n\nFix: " + fix if fix else "")).strip() or title
 
-    # If no issues at all
-    if not files_with_issues:
-        lines.append("_No issues found. Nice work!_ 🎉")
-
-    # Keep under GitHub limits (big safety margin)
-    text = "\n".join(lines).strip()
-    return text[:18000]
+            anns.append({
+                "path": path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "annotation_level": lvl,
+                "title": title,
+                "message": message[:65535],
+            })
+    return anns[:500]

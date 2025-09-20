@@ -5,10 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.settings import OPENAI_MODEL
 from src.types import GithubReviewRequest, ReviewRequest
-from src.github import get_pr_title_and_diff, post_pr_comment
+from src.github import get_pr_title_and_diff, create_or_update_check_run
 from src.reviewer import review_pr
 from src.security import verify_github_signature
-from src.utils import render_markdown_comment
+from src.utils import (
+    build_github_annotations,
+    build_check_summary_markdown,
+    result_to_check_conclusion,
+)
 
 app = FastAPI(title="MergeWise — Intelligent Pull Request Reviewer")
 
@@ -47,9 +51,15 @@ async def github_webhook(request: Request):
         repo = payload["repository"]["name"]
         owner = payload["repository"]["owner"]["login"]
         pr_number = payload["number"]
+        head_sha = payload["pull_request"]["head"]["sha"]  # needed for check run
+
         title, diff = get_pr_title_and_diff(owner, repo, pr_number)
         result = review_pr(title, diff, max_files=25)
-        comment = render_markdown_comment(result)
-        post_pr_comment(owner, repo, pr_number, comment)
+
+        per_file_diffs = result.get("per_file_diffs", {})
+        annotations = build_github_annotations(result, per_file_diffs)
+        summary_md = build_check_summary_markdown(result)
+        conclusion = result_to_check_conclusion(result)
+        create_or_update_check_run(owner, repo, head_sha, conclusion, summary_md, annotations)
 
     return {"ok": True}

@@ -14,12 +14,17 @@ Evaluate diffs for:
 4) Testing impact (missing/updated tests)
 5) Maintainability & style
 
-Rules:
-- Be precise and cite exact lines/hunks.
-- Prefer minimal, concrete patches.
-- Classify each finding: BLOCKER, WARNING, or NIT.
-- If no issues, return an empty findings list.
-- Output strict JSON matching the schema.
+Output strict JSON for each file:
+- file: string
+- summary: string
+- findings: array of objects with keys:
+  - severity: BLOCKER | WARNING | NIT
+  - title: string
+  - lines: string range like "72" or "41-45" (best estimate; optional)
+  - anchor: EXACT code line copied verbatim from the DIFF (prefer a '+' added line; else a context ' ' line). Do NOT invent.
+  - rationale: string
+  - recommendation: string
+  - patch: unified diff snippet for the fix (optional)
 """
 
 @dataclass
@@ -44,16 +49,19 @@ def split_diff_by_file(unified_diff: str) -> List[ReviewChunk]:
 def _call_openai_for_file(file_path: str, file_diff: str, pr_title: str) -> Dict[str, Any]:
     client = OpenAI()
     user_instructions = f"""
-Review the following diff for one file in the context of the PR title.
+Review the following single-file unified diff in the context of the PR title.
+
+Rules for 'anchor':
+- Choose ONE exact line from the DIFF that best represents the issue location.
+- Prefer a line that begins with '+' (added). If none, choose a context line that begins with a single space ' '.
+- Copy the line's content AFTER the sign (+ or space) exactly; no trimming besides leading sign.
+- Never use a '-' removed line as the anchor.
+
+Return STRICT JSON with keys: file, summary, findings[{{
+  severity, title, lines, anchor, rationale, recommendation, patch
+}}].
 
 PR_TITLE: {pr_title}
-
-Return STRICT JSON with keys: file, summary, findings.
-- file: the file path you are reviewing
-- summary: one paragraph summary of your review for this file
-- findings: array of objects with keys: severity (BLOCKER|WARNING|NIT), title, lines, rationale, recommendation, patch
-
-If no issues: return findings: [].
 
 FILE: {file_path}
 DIFF:
@@ -81,11 +89,14 @@ DIFF:
 def review_pr(pr_title: str, unified_diff: str, max_files: int = 25) -> Dict[str, Any]:
     chunks = split_diff_by_file(unified_diff)
     if not chunks:
-        return {"summary": "No diff to review.", "files": [], "findings_total": 0}
+        return {"summary": "No diff to review.", "files": [], "findings_total": 0, "per_file_diffs": {}}
 
-    chunks = chunks[:max_files]  # simple cap for MVP
+    chunks = chunks[:max_files]
     all_files: List[Dict[str, Any]] = []
+    per_file_diffs = {}
+
     for ch in chunks:
+        per_file_diffs[ch.file] = ch.diff_text
         result = _call_openai_for_file(ch.file, ch.diff_text[:70_000], pr_title)
         all_files.append(result)
 
@@ -94,4 +105,9 @@ def review_pr(pr_title: str, unified_diff: str, max_files: int = 25) -> Dict[str
     nits = sum(1 for f in all_files for x in f.get("findings", []) if x.get("severity") == "NIT")
     summary = f"Reviewed {len(all_files)} file(s). Found {blockers} blocker(s), {warnings} warning(s), {nits} nit(s)."
 
-    return {"summary": summary, "files": all_files, "findings_total": blockers + warnings + nits}
+    return {
+        "summary": summary,
+        "files": all_files,
+        "findings_total": blockers + warnings + nits,
+        "per_file_diffs": per_file_diffs,
+    }

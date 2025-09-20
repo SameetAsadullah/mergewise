@@ -1,6 +1,7 @@
 from __future__ import annotations
 import requests
-from typing import Tuple
+
+from typing import Tuple, List, Dict, Any
 
 from .settings import GITHUB_API_BASE
 from .security import get_installation_token
@@ -29,13 +30,53 @@ def get_pr_title_and_diff(owner: str, repo: str, pr_number: int) -> Tuple[str, s
     diff = get_pr_diff(owner, repo, pr_number, token)
     return title, diff
 
-def post_pr_comment(owner: str, repo: str, pr_number: int, markdown: str) -> None:
+def create_or_update_check_run(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    conclusion: str,
+    summary_md: str,
+    annotations: List[Dict[str, Any]],
+    name: str = "PR Review"
+) -> None:
+    """
+    Create a completed Check Run with summary + annotations.
+    Note: GitHub allows max 50 annotations per request; we batch if needed.
+    """
     token = get_installation_token(owner, repo)
-    url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{pr_number}/comments"
-    r = requests.post(
-        url,
-        headers=_headers("application/vnd.github+json", token),
-        json={"body": markdown},
-        timeout=30,
-    )
+
+    # Create the check run first (completed or queued)
+    url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+
+    # Start as completed with summary (no annotations yet)
+    payload = {
+        "name": name,
+        "head_sha": head_sha,
+        "status": "completed",
+        "conclusion": conclusion,  # "neutral" | "failure"
+        "output": {
+            "title": "MergeWise findings",
+            "summary": summary_md[:65535],
+            "annotations": []  # add separately in batches
+        }
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=30)
     r.raise_for_status()
+    check = r.json()
+    check_id = check["id"]
+
+    # Batch annotations (max 50 per request)
+    batch_size = 50
+    for i in range(0, len(annotations), batch_size):
+        batch = annotations[i:i+batch_size]
+        u = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs/{check_id}"
+        payload = {
+            "output": {
+                "title": "MergeWise findings",
+                "summary": summary_md[:65535],
+                "annotations": batch
+            }
+        }
+        r = requests.patch(u, headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
