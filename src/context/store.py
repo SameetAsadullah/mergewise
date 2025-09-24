@@ -11,7 +11,7 @@ import numpy as np
 
 @dataclass
 class VectorDocument:
-    """Chunk of repository context stored alongside its metadata."""
+    """Metadata describing a single embedded chunk."""
 
     id: str
     file_path: str
@@ -40,14 +40,13 @@ class VectorDocument:
             start_line=payload.get("start_line"),
             end_line=payload.get("end_line"),
             label=payload.get("label"),
-            embedding=None,
         )
 
 
 class FaissVectorStore:
-    """FAISS-backed vector store that persists index + metadata to disk."""
+    """Persisted FAISS index + metadata for repository context."""
 
-    def __init__(self, storage_dir: Path):
+    def __init__(self, storage_dir: Path) -> None:
         self.dir = storage_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.dir / "index.faiss"
@@ -142,16 +141,8 @@ class FaissVectorStore:
         k = min(top_k, len(self._documents))
         if k <= 0:
             return []
-        distances, indices = self._index.search(query, k)
-        result: List[VectorDocument] = []
-        for idx in indices[0]:
-            if idx < 0:
-                continue
-            try:
-                result.append(self._documents[idx])
-            except IndexError:
-                continue
-        return result
+        _, indices = self._index.search(query, k)
+        return [self._documents[idx] for idx in indices[0] if 0 <= idx < len(self._documents)]
 
     # ------------------------------------------------------------------
     def _prepare_embeddings(self, docs: List[VectorDocument], dim: int) -> np.ndarray:
@@ -172,10 +163,7 @@ class FaissVectorStore:
             self._docs_by_path.setdefault(doc.file_path, []).append(doc)
 
     def _persist(self) -> None:
-        data = {
-            "metadata": self.metadata,
-            "documents": [doc.to_dict() for doc in self._documents],
-        }
+        data = {"metadata": self.metadata, "documents": [doc.to_dict() for doc in self._documents]}
         self.meta_path.write_text(json.dumps(data))
         if self._index is not None:
             faiss.write_index(self._index, str(self.index_path))
@@ -187,7 +175,7 @@ def _embedding_dimension(docs: List[VectorDocument]) -> int:
     for doc in docs:
         if doc.embedding:
             return len(doc.embedding)
-    raise ValueError("At least one document must carry embedding data")
+    raise ValueError("At least one document must include embedding data")
 
 
 def _normalize(vec: np.ndarray) -> np.ndarray:
