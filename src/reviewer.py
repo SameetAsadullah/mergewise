@@ -25,6 +25,7 @@ Output strict JSON for each file:
 - file
 - summary
 - findings: array[{severity, title, lines, anchor, rationale, recommendation, patch}]
+- severity MUST be exactly one of: BLOCKER, WARNING, NIT
 """.strip()
 
 
@@ -162,6 +163,7 @@ Rules for 'anchor':
 - Never use removed '-' lines as anchors.
 
 Return strict JSON with keys: file, summary, findings[{{severity,title,lines,anchor,rationale,recommendation,patch}}].
+Remember: use BLOCKER, WARNING, or NIT for `severity`.
 
 PR_TITLE: {pr_title}
 FILE: {file_path}
