@@ -1,2 +1,94 @@
-# mergewise
-It is an AI powered code review assistant for GitHub pull requests. It listens to PR webhooks, analyzes diffs with a large language model, and posts structured feedback highlighting blockers, warnings, and nits to improve review speed and consistency.
+# MergeWise
+
+MergeWise is a production-ready AI assistant that performs context-aware code reviews for GitHub pull requests. It ingests repository documentation and code, stores embeddings in FAISS, retrieves the most relevant context for each diff, and asks an LLM to deliver structured findings. The service posts GitHub Check annotations with rationale and fix-ready snippets so contributors can resolve issues quickly.
+
+## Why It Stands Out
+- **Context-aware reviews** – fetches repo docs/config with OpenAI embeddings + FAISS and re-ranks with an LLM to supply precise context to each file review.
+- **Structured, actionable output** – every finding includes severity (`BLOCKER`, `WARNING`, `NIT`), rationale, and a fix suggestion rendered in the check annotation.
+- **GitHub-native UX** – push-button GitHub App integration: health endpoint, `/review` API, webhook handling, and check runs with annotations.
+- **Modular architecture** – clean separation between ingestion (`context/`), review engine, GitHub client, FastAPI transport, and utilities.
+- **Tested & reproducible** – extensive pytest suite with deterministic stubs (OpenAI, GitHub, requests); all tests pass with `pytest`.
+
+## Project Structure
+```
+├─ app.py                 # FastAPI entrypoint & routes
+├─ src/
+│  ├─ context/            # Context indexing + retrieval (config, chunking, FAISS store, reranker, service)
+│  ├─ github.py           # GitHub REST client + helpers
+│  ├─ reviewer.py         # ReviewEngine (diff parsing, LLM prompts, aggregation)
+│  ├─ schemas.py          # Pydantic request bodies
+│  ├─ utils.py            # Check-run annotation helpers, diff utilities
+│  └─ ...                 # security, settings, etc.
+├─ tests/                 # pytest suite with fixtures + unit/integration tests
+└─ requirements.txt       # Runtime dependencies
+```
+
+## Getting Started
+### 1. Install dependencies
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 2. Configure environment
+Create a `.env` (read by `python-dotenv`) with your credentials:
+```
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+GITHUB_APP_ID=<github-app-id>
+GITHUB_APP_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+GITHUB_WEBHOOK_SECRET=<optional>
+``` 
+Other tunables (chunk size, FAISS index dir, reranker model, etc.) live in `src/settings.py` / `src/context/config.py`.
+
+### 3. Run the API locally
+```bash
+source venv/bin/activate
+uvicorn app:app --reload
+```
+
+Useful endpoints:
+- `GET /health` – returns app status + active model.
+- `POST /review` – manual review of a diff (`ReviewRequest`).
+- `POST /review/github` – review by owner/repo/pr number (`GithubReviewRequest`).
+- `POST /github/webhook` – GitHub webhook handler for PR events.
+
+## GitHub App Integration
+1. Create a GitHub App with **Repository** permissions for Checks (read/write) and Pull Requests (read). Install it on your repo.
+2. Configure the webhook URL to point to `/github/webhook` and use the same secret as `GITHUB_WEBHOOK_SECRET`.
+3. Deploy the FastAPI service (e.g., Fly.io, Railway, AWS) with the same env vars. On PR open/sync/reopen, the webhook triggers a review, generates findings, and updates a GitHub Check Run with annotations and fix snippets.
+
+## How Reviews Work
+1. **Diff parsing** – `DiffParser` splits unified diffs into file chunks.
+2. **Context retrieval** – `RepositoryContextService` indexes repository blobs with OpenAI embeddings + FAISS. Reranking (optional) prioritizes the most relevant chunks per file.
+3. **LLM prompts** – `ReviewEngine` sends each file’s diff + context to OpenAI, demanding strict JSON output with severity, rationale, recommendation, and patch.
+4. **Aggregation & reporting** – Summaries, severity tallies, per-file diffs, and fix-ready snippets are produced. GitHub check annotations display the rationale and a well-formatted fix block.
+
+## Running Tests
+```bash
+source venv/bin/activate
+PYTHONPATH=. pytest
+```
+Tests cover chunking logic, FAISS persistence, context ingestion/retrieval, reranking fallbacks, reviewer orchestration, GitHub client behavior, FastAPI routes, and annotation formatting. CI can simply call `pytest` after installing requirements.
+
+## Design Highlights
+- **Fast retrieval**: FAISS + JSON metadata allow quick reuse across webhook calls.
+- **LLM guardrails**: prompts enforce strict JSON, severity tokens, and diff-formatted patches; utilities normalize and protect against malformed outputs.
+- **Extensible**: add new context chunkers, rerankers, or review heuristics by extending the `context/` package.
+- **Developer-friendly**: modular code, clear interfaces, and thorough tests make it easy to extend for auto-fix workflows or metrics.
+
+## Roadmap Ideas
+- Background worker to apply fix patches automatically when users click a check-run action.
+- Repo-specific tuning: severity calibration, ignored paths, heuristics.
+- Persistent metrics dashboard (latency, cost, precision) for continuous evaluation.
+- Built-in reviewer persona customization per language/framework.
+
+## Contributing
+PRs welcome! Please:
+1. Run `pytest` locally.
+2. Add/adjust tests for new logic.
+3. Update documentation where relevant.
+
+Happy reviewing!
