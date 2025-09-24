@@ -19,6 +19,7 @@ MergeWise is a production-ready AI assistant that performs context-aware code re
 │  ├─ schemas.py          # Pydantic request bodies
 │  ├─ utils.py            # Check-run annotation helpers, diff utilities
 │  └─ ...                 # security, settings, etc.
+├─ docs/                  # Architecture & deployment guides
 ├─ requirements.txt       # Runtime dependencies
 ├─ Dockerfile             # Containerized deployment
 ├─ tests/                 # pytest suite with fixtures + unit/integration tests
