@@ -49,6 +49,13 @@ source venv/bin/activate
 uvicorn app:app --reload
 ```
 
+### Optional: Run in Docker
+```bash
+docker build -t mergewise .
+docker run --rm -p 8000:8000 --env-file .env mergewise
+# visit http://localhost:8000/health
+```
+
 Useful endpoints:
 - `GET /health` – returns app status + active model.
 - `POST /review` – manual review of a diff (`ReviewRequest`).
