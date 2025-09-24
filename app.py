@@ -3,10 +3,11 @@ import json
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.settings import OPENAI_MODEL
+from src.settings import OPENAI_MODEL, ENABLE_CONTEXT_INDEXING, CONTEXT_TOP_K
 from src.types import GithubReviewRequest, ReviewRequest
-from src.github import get_pr_title_and_diff, create_or_update_check_run
+from src.github import get_pr_details, create_or_update_check_run
 from src.reviewer import review_pr
+from src.context import RepoContextProvider
 from src.security import verify_github_signature
 from src.utils import (
     build_github_annotations,
@@ -32,9 +33,28 @@ def review(req: ReviewRequest):
 
 @app.post("/review/github")
 def review_github(req: GithubReviewRequest):
-    pr_title, diff = get_pr_title_and_diff(req.owner, req.repo, req.pr_number)
-    result = review_pr(pr_title, diff, max_files=req.max_files)
-    result["pr"] = {"owner": req.owner, "repo": req.repo, "number": req.pr_number, "title": pr_title}
+    details = get_pr_details(req.owner, req.repo, req.pr_number)
+    context_provider = None
+    if ENABLE_CONTEXT_INDEXING and details.get("base_sha"):
+        context_provider = RepoContextProvider(
+            owner=req.owner,
+            repo=req.repo,
+            base_sha=details["base_sha"],
+            pr_title=details["title"],
+        )
+    result = review_pr(
+        details["title"],
+        details["diff"],
+        max_files=req.max_files,
+        context_provider=context_provider,
+        context_top_k=CONTEXT_TOP_K,
+    )
+    result["pr"] = {
+        "owner": req.owner,
+        "repo": req.repo,
+        "number": req.pr_number,
+        "title": details["title"],
+    }
     return result
 
 @app.post("/github/webhook")
@@ -53,8 +73,22 @@ async def github_webhook(request: Request):
         pr_number = payload["number"]
         head_sha = payload["pull_request"]["head"]["sha"]  # needed for check run
 
-        title, diff = get_pr_title_and_diff(owner, repo, pr_number)
-        result = review_pr(title, diff, max_files=25)
+        details = get_pr_details(owner, repo, pr_number)
+        context_provider = None
+        if ENABLE_CONTEXT_INDEXING and details.get("base_sha"):
+            context_provider = RepoContextProvider(
+                owner=owner,
+                repo=repo,
+                base_sha=details["base_sha"],
+                pr_title=details["title"],
+            )
+        result = review_pr(
+            details["title"],
+            details["diff"],
+            max_files=25,
+            context_provider=context_provider,
+            context_top_k=CONTEXT_TOP_K,
+        )
 
         per_file_diffs = result.get("per_file_diffs", {})
         annotations = build_github_annotations(result, per_file_diffs)

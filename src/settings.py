@@ -6,6 +6,7 @@ load_dotenv()
 
 # App config
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
 # Webhook secret for HMAC verification; leave empty to skip in local dev
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
@@ -21,3 +22,11 @@ GITHUB_APP_PRIVATE_KEY_PEM = _pem_env
 
 # GitHub API root (override for GHES)
 GITHUB_API_BASE = os.getenv("GITHUB_API", "https://api.github.com")
+
+# Context-aware review configuration
+ENABLE_CONTEXT_INDEXING = os.getenv("ENABLE_CONTEXT_INDEXING", "true").lower() not in {"0", "false", "no"}
+CONTEXT_INDEX_DIR = os.getenv("CONTEXT_INDEX_DIR", "data/context-indexes")
+CONTEXT_MAX_CHARS_PER_CHUNK = int(os.getenv("CONTEXT_MAX_CHARS_PER_CHUNK", "1200"))
+CONTEXT_MAX_FILE_BYTES = int(os.getenv("CONTEXT_MAX_FILE_BYTES", "80000"))
+CONTEXT_MAX_FILES = int(os.getenv("CONTEXT_MAX_FILES", "200"))
+CONTEXT_TOP_K = int(os.getenv("CONTEXT_TOP_K", "4"))
