@@ -58,7 +58,7 @@ def _locate_anchor_line(file_diff: str, anchor: Optional[str]) -> Optional[int]:
 
 def result_to_check_conclusion(result: Dict[str, Any]) -> str:
     any_blocker = any(
-        (x.get("severity","").upper()=="BLOCKER")
+        x.get("severity") == "BLOCKER"
         for f in (result.get("files") or [])
         for x in (f.get("findings") or [])
     )
@@ -66,9 +66,24 @@ def result_to_check_conclusion(result: Dict[str, Any]) -> str:
 
 def build_check_summary_markdown(result: Dict[str, Any]) -> str:
     files = result.get("files", []) or []
-    blockers = sum(1 for f in files for x in (f.get("findings") or []) if (x.get("severity","").upper()=="BLOCKER"))
-    warnings = sum(1 for f in files for x in (f.get("findings") or []) if (x.get("severity","").upper()=="WARNING"))
-    nits     = sum(1 for f in files for x in (f.get("findings") or []) if (x.get("severity","").upper()=="NIT"))
+    blockers = sum(
+        1
+        for f in files
+        for x in (f.get("findings") or [])
+        if x.get("severity") == "BLOCKER"
+    )
+    warnings = sum(
+        1
+        for f in files
+        for x in (f.get("findings") or [])
+        if x.get("severity") == "WARNING"
+    )
+    nits = sum(
+        1
+        for f in files
+        for x in (f.get("findings") or [])
+        if x.get("severity") == "NIT"
+    )
     return (
         f"**{result.get('summary','')}**\n\n"
         f"- Blockers: {blockers}\n- Warnings: {warnings}\n- Nits: {nits}\n\n"
@@ -86,8 +101,8 @@ def build_github_annotations(result: Dict[str, Any], per_file_diffs: Dict[str, s
         path = f.get("file", "")
         file_diff = per_file_diffs.get(path, "")
         for x in (f.get("findings") or []):
-            sev = (x.get("severity") or "").upper()
-            lvl = level_map.get(sev, "notice")
+            sev = x.get("severity")
+            lvl = level_map.get(sev, level_map["WARNING"])
             # prefer anchor mapping; fall back to parsed "lines"
             anchor_ln = _locate_anchor_line(file_diff, x.get("anchor"))
             if anchor_ln is not None:

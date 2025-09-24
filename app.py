@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.settings import OPENAI_MODEL, ENABLE_CONTEXT_INDEXING
-from src.types import GithubReviewRequest, ReviewRequest
+from src.schemas import GithubReviewRequest, ReviewRequest
 from src.github import get_pr_details, create_or_update_check_run
 from src.reviewer import review_pr
 from src.context import ContextConfig, RepositoryContextService

@@ -1,7 +1,10 @@
 __pycache__/
 venv/
 data/
+.pytest_cache/
 
 .DS_Store
 .env
 mergewise.2025-09-17.private-key.pem
+pytest.ini
+sitecustomize.py
