@@ -12,11 +12,16 @@ def _headers(accept: str, token: str | None = None) -> dict:
         h["Authorization"] = f"Bearer {token}"
     return h
 
-def get_pr_title(owner: str, repo: str, pr_number: int, token: str | None = None) -> str:
+def _get_pr_json(owner: str, repo: str, pr_number: int, token: str | None = None) -> Dict[str, Any]:
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
     r = requests.get(url, headers=_headers("application/vnd.github+json", token), timeout=30)
     r.raise_for_status()
-    return r.json().get("title") or f"PR #{pr_number}"
+    return r.json()
+
+
+def get_pr_title(owner: str, repo: str, pr_number: int, token: str | None = None) -> str:
+    data = _get_pr_json(owner, repo, pr_number, token)
+    return data.get("title") or f"PR #{pr_number}"
 
 def get_pr_diff(owner: str, repo: str, pr_number: int, token: str | None = None) -> str:
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
@@ -25,10 +30,25 @@ def get_pr_diff(owner: str, repo: str, pr_number: int, token: str | None = None)
     return r.text
 
 def get_pr_title_and_diff(owner: str, repo: str, pr_number: int) -> Tuple[str, str]:
+    details = get_pr_details(owner, repo, pr_number)
+    return details["title"], details["diff"]
+
+
+def get_pr_details(owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
     token = get_installation_token(owner, repo)
-    title = get_pr_title(owner, repo, pr_number, token)
+    pr_json = _get_pr_json(owner, repo, pr_number, token)
     diff = get_pr_diff(owner, repo, pr_number, token)
-    return title, diff
+    base = pr_json.get("base") or {}
+    head = pr_json.get("head") or {}
+    return {
+        "title": pr_json.get("title") or f"PR #{pr_number}",
+        "diff": diff,
+        "base_ref": base.get("ref"),
+        "base_sha": base.get("sha"),
+        "head_ref": head.get("ref"),
+        "head_sha": head.get("sha"),
+        "number": pr_number,
+    }
 
 def create_or_update_check_run(
     owner: str,
