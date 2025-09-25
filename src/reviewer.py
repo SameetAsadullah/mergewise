@@ -11,6 +11,8 @@ from openai import AsyncOpenAI
 
 from .settings import CONTEXT_TOP_K, OPENAI_MODEL
 from .context.service import RepositoryContextService, RetrievalRequest
+from .review_models import FileReviewModel, ReviewResultModel
+from .review_models import ReviewResultModel
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +149,16 @@ class ReviewEngine:
                 context_blocks=contexts,
             )
 
-        file_reviews = await asyncio.gather(*(process(chunk) for chunk in selected))
+        raw_reviews = await asyncio.gather(*(process(chunk) for chunk in selected))
+        file_reviews = [FileReviewModel(**item).model_dump() for item in raw_reviews]
         summary = self._build_summary(file_reviews)
-        return {
-            "summary": summary,
-            "files": list(file_reviews),
-            "findings_total": self._count_findings(file_reviews),
-            "per_file_diffs": per_file_diffs,
-        }
+        result_model = ReviewResultModel(
+            summary=summary,
+            files=[FileReviewModel(**review) for review in file_reviews],
+            findings_total=self._count_findings(file_reviews),
+            per_file_diffs=per_file_diffs,
+        )
+        return result_model.model_dump()
 
     # ------------------------------------------------------------------
     async def _review_single_file_async(
@@ -202,13 +206,15 @@ DIFF:
         )
         payload = response.choices[0].message.content
         try:
-            data = json.loads(payload)
+            data = FileReviewModel.model_validate_json(payload)
+            validated = data.model_dump()
         except Exception:  # pragma: no cover - defensive fallback
-            data = {"file": file_path, "summary": "", "findings": []}
-        data.setdefault("file", file_path)
-        data.setdefault("summary", "")
-        data.setdefault("findings", [])
-        return data
+            logger.warning("Failed to parse review response for %s", file_path)
+            validated = {"file": file_path, "summary": "", "findings": []}
+        validated.setdefault("file", file_path)
+        validated.setdefault("summary", "")
+        validated.setdefault("findings", [])
+        return validated
 
     # ------------------------------------------------------------------
     @staticmethod
