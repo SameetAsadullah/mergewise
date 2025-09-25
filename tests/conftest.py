@@ -71,6 +71,27 @@ class FakeOpenAI:
         return FakeChatResponse(choices=[FakeChatChoice(message=FakeChatChoiceMessage(content=content))])
 
 
+class FakeAsyncOpenAI:
+    """Async-compatible OpenAI stub mirroring FakeOpenAI responses."""
+
+    def __init__(self, *, completion_payloads: Iterable[Dict[str, Any]] | None = None) -> None:
+        self._completion_payloads = list(completion_payloads or [])
+
+        class Completions:
+            def __init__(self, outer: "FakeAsyncOpenAI") -> None:
+                self._outer = outer
+
+            async def create(self, *, model: str, response_format: Dict[str, Any], messages: List[Dict[str, str]], temperature: float = 0.0) -> FakeChatResponse:  # noqa: D401
+                if self._outer._completion_payloads:
+                    payload = self._outer._completion_payloads.pop(0)
+                else:
+                    payload = {"file": "test.py", "summary": "", "findings": []}
+                content = json.dumps(payload)
+                return FakeChatResponse(choices=[FakeChatChoice(message=FakeChatChoiceMessage(content=content))])
+
+        self.chat = type("Chat", (), {"completions": Completions(self)})()
+
+
 @pytest.fixture
 def sample_python_file() -> str:
     return """\

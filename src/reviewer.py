@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from .settings import CONTEXT_TOP_K, OPENAI_MODEL
 from .context.service import RepositoryContextService, RetrievalRequest
@@ -72,14 +73,31 @@ class ReviewEngine:
     def __init__(
         self,
         config: ReviewConfig,
-        openai_client: Optional[OpenAI] = None,
+        async_client: Optional[AsyncOpenAI] = None,
         diff_parser: Optional[DiffParser] = None,
     ) -> None:
         self._config = config
-        self._client = openai_client or OpenAI()
+        self._async_client = async_client or AsyncOpenAI()
         self._diff_parser = diff_parser or DiffParser()
 
     def review(
+        self,
+        pr_title: str,
+        unified_diff: str,
+        *,
+        max_files: int = 25,
+        context_service: Optional[RepositoryContextService] = None,
+    ) -> Dict[str, Any]:
+        return asyncio.run(
+            self.review_async(
+                pr_title,
+                unified_diff,
+                max_files=max_files,
+                context_service=context_service,
+            )
+        )
+
+    async def review_async(
         self,
         pr_title: str,
         unified_diff: str,
@@ -103,43 +121,43 @@ class ReviewEngine:
             try:
                 context_service.ensure_index([chunk.file_path for chunk in selected])
             except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Context indexing failed; continuing without repository context: %s", exc)
+                logger.warning("Context indexing failed; continuing without context: %s", exc)
                 context_service = None
 
-        file_reviews: List[Dict[str, Any]] = []
-        for chunk in selected:
+        async def process(chunk: ReviewChunk) -> Dict[str, Any]:
             contexts: Optional[List[str]] = None
             if context_service:
                 try:
-                    contexts = context_service.retrieve_context(
+                    contexts = await asyncio.to_thread(
+                        context_service.retrieve_context,
                         RetrievalRequest(
                             file_path=chunk.file_path,
                             diff_text=chunk.diff_text,
                             top_k=self._config.context_top_k,
-                        )
+                        ),
                     )
                 except Exception as exc:  # pragma: no cover - defensive fallback
                     logger.warning("Context retrieval failed for %s: %s", chunk.file_path, exc)
                     contexts = None
 
-            file_review = self._review_single_file(
+            return await self._review_single_file_async(
                 pr_title=pr_title,
                 file_path=chunk.file_path,
                 diff_text=chunk.diff_text,
                 context_blocks=contexts,
             )
-            file_reviews.append(file_review)
 
+        file_reviews = await asyncio.gather(*(process(chunk) for chunk in selected))
         summary = self._build_summary(file_reviews)
         return {
             "summary": summary,
-            "files": file_reviews,
+            "files": list(file_reviews),
             "findings_total": self._count_findings(file_reviews),
             "per_file_diffs": per_file_diffs,
         }
 
     # ------------------------------------------------------------------
-    def _review_single_file(
+    async def _review_single_file_async(
         self,
         *,
         pr_title: str,
@@ -164,6 +182,7 @@ Rules for 'anchor':
 
 Return strict JSON with keys: file, summary, findings[{{severity,title,lines,anchor,rationale,recommendation,patch}}].
 Remember: use BLOCKER, WARNING, or NIT for `severity`.
+If you propose a code change, include it in `patch` as a minimal unified diff that can be applied directly.
 
 PR_TITLE: {pr_title}
 FILE: {file_path}
@@ -172,7 +191,7 @@ DIFF:
 {context_section}
 """.strip()
 
-        response = self._client.chat.completions.create(
+        response = await self._async_client.chat.completions.create(
             model=self._config.model,
             response_format={"type": "json_object"},
             messages=[
@@ -210,14 +229,29 @@ DIFF:
 _default_engine = ReviewEngine(ReviewConfig.from_settings())
 
 
+async def review_pr_async(
+    pr_title: str,
+    unified_diff: str,
+    max_files: int = 25,
+    context_service: Optional[RepositoryContextService] = None,
+) -> Dict[str, Any]:
+    """Async entry point used by FastAPI routes."""
+
+    return await _default_engine.review_async(
+        pr_title,
+        unified_diff,
+        max_files=max_files,
+        context_service=context_service,
+    )
+
+
 def review_pr(
     pr_title: str,
     unified_diff: str,
     max_files: int = 25,
     context_service: Optional[RepositoryContextService] = None,
 ) -> Dict[str, Any]:
-    """Backwards-compatible entry point used by FastAPI routes."""
-
+    """Synchronous helper for legacy usage."""
     return _default_engine.review(
         pr_title,
         unified_diff,
