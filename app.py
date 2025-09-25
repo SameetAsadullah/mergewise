@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.settings import OPENAI_MODEL, ENABLE_CONTEXT_INDEXING
 from src.schemas import GithubReviewRequest, ReviewRequest
 from src.github import get_pr_details, create_or_update_check_run
-from src.reviewer import review_pr
+from src.reviewer import review_pr, review_pr_async
 from src.context import ContextConfig, RepositoryContextService
 from src.security import verify_github_signature
 from src.utils import (
@@ -30,11 +30,11 @@ def health():
     return {"ok": True, "model": OPENAI_MODEL}
 
 @app.post("/review")
-def review(req: ReviewRequest):
-    return review_pr(req.pr_title, req.unified_diff)
+async def review(req: ReviewRequest):
+    return await review_pr_async(req.pr_title, req.unified_diff)
 
 @app.post("/review/github")
-def review_github(req: GithubReviewRequest):
+async def review_github(req: GithubReviewRequest):
     details = get_pr_details(req.owner, req.repo, req.pr_number)
     context_service = None
     if ENABLE_CONTEXT_INDEXING and details.get("base_sha"):
@@ -45,7 +45,7 @@ def review_github(req: GithubReviewRequest):
             pr_title=details["title"],
             config=CONTEXT_CONFIG,
         )
-    result = review_pr(
+    result = await review_pr_async(
         details["title"],
         details["diff"],
         max_files=req.max_files,
@@ -85,7 +85,7 @@ async def github_webhook(request: Request):
                 pr_title=details["title"],
                 config=CONTEXT_CONFIG,
             )
-        result = review_pr(
+        result = await review_pr_async(
             details["title"],
             details["diff"],
             max_files=25,

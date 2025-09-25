@@ -25,15 +25,15 @@ def test_review_github_endpoint(monkeypatch):
         },
     )
 
-    monkeypatch.setattr(
-        "app.review_pr",
-        lambda title, diff, max_files=25, context_service=None: {
+    async def fake_review(*args, **kwargs):
+        return {
             "summary": "Reviewed 1 file(s).",
             "files": [],
             "findings_total": 0,
             "per_file_diffs": {},
-        },
-    )
+        }
+
+    monkeypatch.setattr("app.review_pr_async", fake_review)
     monkeypatch.setattr("app.create_or_update_check_run", lambda *args, **kwargs: None)
 
     resp = client.post(
@@ -57,15 +57,15 @@ def test_github_webhook_triggers_review(monkeypatch):
             "base_sha": None,
         },
     )
-    monkeypatch.setattr(
-        "app.review_pr",
-        lambda title, diff, max_files=25, context_service=None: {
+    async def fake_review(*args, **kwargs):
+        return {
             "summary": "Reviewed",
             "files": [],
             "findings_total": 0,
             "per_file_diffs": {},
-        },
-    )
+        }
+
+    monkeypatch.setattr("app.review_pr_async", fake_review)
     monkeypatch.setattr("app.verify_github_signature", lambda raw, sig: True)
     monkeypatch.setattr("app.create_or_update_check_run", lambda *args, **kwargs: None)
 

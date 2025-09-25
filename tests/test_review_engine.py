@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from tests.conftest import FakeOpenAI
+import asyncio
+
+from tests.conftest import FakeAsyncOpenAI
 from src.context.service import RetrievalRequest
 from src.reviewer import DiffParser, ReviewConfig, ReviewEngine
 
@@ -43,14 +45,16 @@ index 000..111 100644
 
 def test_review_engine_generates_summary():
     config = ReviewConfig(model="fake", context_top_k=2)
-    engine = ReviewEngine(config=config, openai_client=FakeOpenAI(completion_payloads=[FAKE_COMPLETION]))
+    engine = ReviewEngine(config=config, async_client=FakeAsyncOpenAI(completion_payloads=[FAKE_COMPLETION]))
     context = StubContextService()
 
-    result = engine.review(
-        pr_title="Add function",
-        unified_diff=DIFF_TEXT,
-        max_files=5,
-        context_service=context,
+    result = asyncio.run(
+        engine.review_async(
+            pr_title="Add function",
+            unified_diff=DIFF_TEXT,
+            max_files=5,
+            context_service=context,
+        )
     )
 
     assert result["files"][0]["findings"][0]["severity"] == "WARNING"
@@ -60,8 +64,8 @@ def test_review_engine_generates_summary():
 
 def test_review_engine_no_diff():
     config = ReviewConfig(model="fake", context_top_k=2)
-    engine = ReviewEngine(config=config, openai_client=FakeOpenAI())
+    engine = ReviewEngine(config=config, async_client=FakeAsyncOpenAI())
 
-    result = engine.review(pr_title="Empty", unified_diff="")
+    result = asyncio.run(engine.review_async(pr_title="Empty", unified_diff=""))
     assert result["summary"] == "No diff to review."
     assert result["findings_total"] == 0
