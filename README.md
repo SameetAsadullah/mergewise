@@ -43,6 +43,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 GITHUB_APP_ID=<github-app-id>
 GITHUB_APP_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 GITHUB_WEBHOOK_SECRET=<optional>
+ENABLE_TASK_QUEUE=0               # set to 1 to offload reviews to Celery + Redis
 ``` 
 Other tunables (chunk size, FAISS index dir, reranker model, etc.) live in `src/settings.py` / `src/context/config.py`.
 
@@ -52,11 +53,36 @@ source venv/bin/activate
 uvicorn app:app --reload
 ```
 
+### Optional: Background task queue (Celery + Redis)
+The FastAPI routes run reviews inline by default. To keep the API responsive under heavy load, enable the Celery worker:
+
+1. Start Redis (or point `CELERY_BROKER_URL` to an existing instance):
+   ```bash
+   docker run --rm -p 6379:6379 redis:7-alpine
+   ```
+2. Export queue settings (or add them to `.env`):
+   ```bash
+   export ENABLE_TASK_QUEUE=1
+   export CELERY_BROKER_URL=redis://localhost:6379/0
+   export CELERY_RESULT_BACKEND=redis://localhost:6379/0
+   ```
+3. Run the API as usual, then start the worker in another terminal:
+   ```bash
+   source venv/bin/activate
+   celery -A src.task_queue:celery_app worker --loglevel=info
+   ```
+When `ENABLE_TASK_QUEUE=1`, `/review`, `/review/github`, and webhook calls enqueue jobs and return immediately with a `task_id`. Workers fetch PR metadata, run the review engine, and update GitHub check runs.
+
 ### Optional: Run in Docker
 ```bash
 docker build -t mergewise .
-docker run --rm -p 8000:8000 --env-file .env mergewise
+docker run --rm -p 8000:8000 --env-file .env mergewise web
 # visit http://localhost:8000/health
+```
+
+Run an additional worker container alongside the web API:
+```bash
+docker run --rm --env-file .env mergewise worker
 ```
 
 Useful endpoints:

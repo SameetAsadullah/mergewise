@@ -34,3 +34,8 @@ CONTEXT_RETRIEVAL_CANDIDATES = int(os.getenv("CONTEXT_RETRIEVAL_CANDIDATES", "12
 CONTEXT_ENABLE_RERANKER = os.getenv("CONTEXT_ENABLE_RERANKER", "true").lower() not in {"0", "false", "no"}
 CONTEXT_RERANK_MODEL = os.getenv("CONTEXT_RERANK_MODEL", OPENAI_MODEL)
 CONTEXT_RERANK_MAX_CHARS = int(os.getenv("CONTEXT_RERANK_MAX_CHARS", "900"))
+
+# Task queue configuration
+ENABLE_TASK_QUEUE = os.getenv("ENABLE_TASK_QUEUE", "false").lower() in {"1", "true", "yes"}
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
