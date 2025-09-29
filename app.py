@@ -4,10 +4,13 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.context import ContextConfig
+from src.logging_config import configure_logging
 from src.schemas import GithubReviewRequest, ReviewRequest
 from src.security import verify_github_signature
 from src.services import ReviewService, ReviewQueue
 from src.settings import OPENAI_MODEL, ENABLE_CONTEXT_INDEXING, ENABLE_TASK_QUEUE
+
+configure_logging()
 
 CONTEXT_CONFIG = ContextConfig.from_settings()
 REVIEW_QUEUE = ReviewQueue(enabled=ENABLE_TASK_QUEUE)

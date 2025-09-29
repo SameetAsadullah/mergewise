@@ -22,6 +22,8 @@ CONTEXT_INDEX_DIR=/data/context-indexes
 ENABLE_TASK_QUEUE=true                # enable Celery/Redis offload
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
+LOG_FILE=/var/log/mergewise/app.log
+LOG_LEVEL=INFO
 ```
 Optional overrides (see `src/settings.py` / `src/context/config.py`): chunk sizes, retrieval limits, reranker toggle, API base for GitHub Enterprise.
 

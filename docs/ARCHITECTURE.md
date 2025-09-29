@@ -13,6 +13,7 @@ MergeWise is designed as a modular, service-oriented FastAPI application that la
 - `ReviewService` orchestrates queue vs. inline execution, context construction, and GitHub check updates.
 - `ReviewQueue` wraps Celery enqueue helpers so the app can detect queue failures and fall back gracefully.
 - `ReviewOutcome` carries either a Celery `task_id` or inline results plus any queue error for observability.
+- Logging is centralized through `src/logging_config.configure_logging`, which installs rotating file handlers and optional console output for all modules.
 
 ### Review Engine (`src/reviewer.py`)
 - `ReviewEngine` orchestrates diff parsing, context retrieval, and LLM prompts.
