@@ -16,6 +16,7 @@ MergeWise is a production-ready AI assistant that performs context-aware code re
 │  ├─ context/            # Context indexing + retrieval (config, chunking, FAISS store, reranker, service)
 │  ├─ github.py           # GitHub REST client + helpers
 │  ├─ reviewer.py         # ReviewEngine (diff parsing, LLM prompts, aggregation)
+│  ├─ services/           # Application-level orchestration (ReviewService, queue helpers)
 │  ├─ schemas.py          # Pydantic request bodies
 │  ├─ utils.py            # Check-run annotation helpers, diff utilities
 │  └─ ...                 # security, settings, etc.
@@ -97,10 +98,11 @@ Useful endpoints:
 3. Deploy the FastAPI service (e.g., Fly.io, Railway, AWS) with the same env vars. On PR open/sync/reopen, the webhook triggers a review, generates findings, and updates a GitHub Check Run with annotations and fix snippets.
 
 ## How Reviews Work
-1. **Diff parsing** – `DiffParser` splits unified diffs into file chunks.
-2. **Context retrieval** – `RepositoryContextService` indexes repository blobs with OpenAI embeddings + FAISS. Reranking (optional) prioritizes the most relevant chunks per file.
-3. **LLM prompts** – `ReviewEngine` sends each file’s diff + context to OpenAI, demanding strict JSON output with severity, rationale, recommendation, and patch.
-4. **Aggregation & reporting** – Summaries, severity tallies, per-file diffs, and fix-ready snippets are produced. GitHub check annotations display the rationale and a well-formatted fix block.
+1. **Request orchestration** – `ReviewService` decides whether to enqueue the review on Celery/Redis or execute inline, and prepares context services as needed.
+2. **Diff parsing** – `DiffParser` splits unified diffs into file chunks.
+3. **Context retrieval** – `RepositoryContextService` indexes repository blobs with OpenAI embeddings + FAISS. Reranking (optional) prioritizes the most relevant chunks per file.
+4. **LLM prompts** – `ReviewEngine` sends each file’s diff + context to OpenAI, demanding strict JSON output with severity, rationale, recommendation, and patch.
+5. **Aggregation & reporting** – Summaries, severity tallies, per-file diffs, and fix-ready snippets are produced. GitHub check annotations display the rationale and a well-formatted fix block.
 
 ## Running Tests
 ```bash
