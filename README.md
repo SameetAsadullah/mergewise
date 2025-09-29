@@ -45,6 +45,8 @@ GITHUB_APP_ID=<github-app-id>
 GITHUB_APP_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 GITHUB_WEBHOOK_SECRET=<optional>
 ENABLE_TASK_QUEUE=0               # set to 1 to offload reviews to Celery + Redis
+LOG_FILE=logs/mergewise.log       # optional: customize log destination
+LOG_LEVEL=INFO
 ``` 
 Other tunables (chunk size, FAISS index dir, reranker model, etc.) live in `src/settings.py` / `src/context/config.py`.
 
@@ -115,6 +117,7 @@ Tests cover chunking logic, FAISS persistence, context ingestion/retrieval, rera
 - **Fast retrieval**: FAISS + JSON metadata allow quick reuse across webhook calls.
 - **LLM guardrails**: prompts enforce strict JSON, severity tokens, and diff-formatted patches; utilities normalize and protect against malformed outputs.
 - **Extensible**: add new context chunkers, rerankers, or review heuristics by extending the `context/` package.
+- **Observable**: ReviewService emits structured logs with queue depth, latency, and fallback reasons for straightforward debugging.
 - **Developer-friendly**: modular code, clear interfaces, and thorough tests make it easy to extend for auto-fix workflows or metrics.
 
 ## Roadmap Ideas

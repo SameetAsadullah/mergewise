@@ -39,3 +39,11 @@ CONTEXT_RERANK_MAX_CHARS = int(os.getenv("CONTEXT_RERANK_MAX_CHARS", "900"))
 ENABLE_TASK_QUEUE = os.getenv("ENABLE_TASK_QUEUE", "false").lower() in {"1", "true", "yes"}
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+
+# Logging configuration
+LOG_FILE = os.getenv("LOG_FILE", "logs/mergewise.log")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_CONSOLE = os.getenv("LOG_CONSOLE", "true").lower() not in {"0", "false", "no"}
+LOG_FORCE = os.getenv("LOG_FORCE", "false").lower() in {"1", "true", "yes"}
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(10 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))

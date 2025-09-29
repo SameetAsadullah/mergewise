@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from ..context import ContextConfig, RepositoryContextService
 from ..github import create_or_update_check_run, get_pr_details
 from ..reviewer import review_pr_async
-from ..task_queue import enqueue_diff_review, enqueue_github_review
+from ..task_queue import enqueue_diff_review, enqueue_github_review, get_queue_depth
 from ..utils import (
     build_check_summary_markdown,
     build_github_annotations,
@@ -48,6 +50,11 @@ class ReviewQueue:
             raise RuntimeError("Task queue is disabled")
         return enqueue_github_review(owner, repo, pr_number, max_files=max_files)
 
+    def queue_depth(self) -> Optional[int]:
+        if not self._enabled:
+            return None
+        return get_queue_depth()
+
 
 class ReviewService:
     """Coordinates review execution across queue and inline flows."""
@@ -62,20 +69,46 @@ class ReviewService:
         self._context_config = context_config
         self._enable_context_indexing = enable_context_indexing
         self._queue = queue if queue and queue.enabled else None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     async def review_diff(self, pr_title: str, unified_diff: str, *, max_files: int = 25) -> ReviewOutcome:
         queue_error: Optional[str] = None
+        start = time.perf_counter()
         if self._queue:
             try:
                 task = self._queue.enqueue_diff(pr_title, unified_diff, max_files=max_files)
+                depth = self._queue.queue_depth()
+                self._logger.info(
+                    "review.queued",
+                    extra={
+                        "source": "diff",
+                        "task_id": task.id,
+                        "queue_depth": depth,
+                        "max_files": max_files,
+                    },
+                )
                 return ReviewOutcome(task_id=task.id)
             except RuntimeError as exc:
                 queue_error = str(exc)
+                self._logger.warning(
+                    "review.queue_fallback",
+                    extra={"source": "diff", "error": queue_error},
+                )
 
         result = await review_pr_async(
             pr_title,
             unified_diff,
             max_files=max_files,
+        )
+        duration_ms = (time.perf_counter() - start) * 1000
+        self._logger.info(
+            "review.inline.completed",
+            extra={
+                "source": "diff",
+                "duration_ms": round(duration_ms, 2),
+                "findings_total": result.get("findings_total"),
+                "queue_error": queue_error,
+            },
         )
         return ReviewOutcome(result=result, queue_error=queue_error)
 
@@ -88,12 +121,36 @@ class ReviewService:
         max_files: int = 25,
     ) -> ReviewOutcome:
         queue_error: Optional[str] = None
+        start = time.perf_counter()
         if self._queue:
             try:
                 task = self._queue.enqueue_github(owner, repo, pr_number, max_files=max_files)
+                depth = self._queue.queue_depth()
+                self._logger.info(
+                    "review.queued",
+                    extra={
+                        "source": "github",
+                        "task_id": task.id,
+                        "queue_depth": depth,
+                        "owner": owner,
+                        "repo": repo,
+                        "pr_number": pr_number,
+                        "max_files": max_files,
+                    },
+                )
                 return ReviewOutcome(task_id=task.id)
             except RuntimeError as exc:
                 queue_error = str(exc)
+                self._logger.warning(
+                    "review.queue_fallback",
+                    extra={
+                        "source": "github",
+                        "owner": owner,
+                        "repo": repo,
+                        "pr_number": pr_number,
+                        "error": queue_error,
+                    },
+                )
 
         details = get_pr_details(owner, repo, pr_number)
         context_service = self._build_context_service(
@@ -115,6 +172,19 @@ class ReviewService:
             "title": details.get("title"),
         }
         metadata = {"head_sha": details.get("head_sha")}
+        duration_ms = (time.perf_counter() - start) * 1000
+        self._logger.info(
+            "review.inline.completed",
+            extra={
+                "source": "github",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "duration_ms": round(duration_ms, 2),
+                "findings_total": result.get("findings_total"),
+                "queue_error": queue_error,
+            },
+        )
         return ReviewOutcome(result=result, queue_error=queue_error, metadata=metadata)
 
     async def process_pull_request_event(
@@ -128,6 +198,15 @@ class ReviewService:
     ) -> ReviewOutcome:
         outcome = await self.review_github(owner, repo, pr_number, max_files=max_files)
         if outcome.queued:
+            self._logger.info(
+                "review.webhook.queued",
+                extra={
+                    "owner": owner,
+                    "repo": repo,
+                    "pr_number": pr_number,
+                    "task_id": outcome.task_id,
+                },
+            )
             return outcome
 
         result = outcome.result or {}
@@ -136,6 +215,17 @@ class ReviewService:
         summary_md = build_check_summary_markdown(result)
         conclusion = result_to_check_conclusion(result)
         create_or_update_check_run(owner, repo, head_sha, conclusion, summary_md, annotations)
+        self._logger.info(
+            "review.webhook.completed",
+            extra={
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "head_sha": head_sha,
+                "findings_total": result.get("findings_total"),
+                "queue_error": outcome.queue_error,
+            },
+        )
         return outcome
 
     def _build_context_service(

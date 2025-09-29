@@ -15,7 +15,10 @@ except ImportError as exc:  # pragma: no cover - optional dependency
 else:
     _celery_import_error = None
 
+from celery.signals import setup_logging as celery_setup_logging
+
 from .context import ContextConfig, RepositoryContextService
+from .logging_config import configure_logging
 from .github import create_or_update_check_run, get_pr_details
 from .reviewer import review_pr
 from .settings import (
@@ -29,6 +32,7 @@ from .utils import (
     result_to_check_conclusion,
 )
 
+configure_logging()
 logger = logging.getLogger(__name__)
 
 if Celery is None:  # pragma: no cover - optional dependency fallback
@@ -57,7 +61,10 @@ if Celery is None:  # pragma: no cover - optional dependency fallback
     ):
         _raise_missing_celery()
 
-    __all__ = ["celery_app", "enqueue_diff_review", "enqueue_github_review"]
+    def get_queue_depth() -> Optional[int]:  # pragma: no cover - optional dependency fallback
+        return None
+
+    __all__ = ["celery_app", "enqueue_diff_review", "enqueue_github_review", "get_queue_depth"]
 
 else:
     celery_app = Celery(
@@ -71,7 +78,13 @@ else:
         result_serializer="json",
         accept_content=["json"],
         task_track_started=True,
+        worker_hijack_root_logger=False,
+        worker_log_color=False,
     )
+
+    @celery_setup_logging.connect
+    def _configure_worker_logging(**_kwargs) -> None:  # pragma: no cover - worker runtime
+        configure_logging(force=True)
 
     def _build_context_service(payload: Optional[Dict[str, Any]]) -> Optional[RepositoryContextService]:
         if not payload:
@@ -100,6 +113,15 @@ else:
             unified_diff,
             max_files=max_files,
             context_service=context_service,
+        )
+        logger.info(
+            "review.queue.completed",
+            extra={
+                "source": "diff",
+                "max_files": max_files,
+                "findings_total": result.get("findings_total"),
+                "queue_depth": get_queue_depth(),
+            },
         )
         return result
 
@@ -158,6 +180,18 @@ else:
                     "Failed to create or update check run for %s/%s #%s", owner, repo, pr_number
                 )
 
+        logger.info(
+            "review.queue.completed",
+            extra={
+                "source": "github",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "findings_total": result.get("findings_total"),
+                "queue_depth": get_queue_depth(),
+            },
+        )
+
         return result
 
     def _enqueue_with_logging(task, *, kwargs: Dict[str, Any]):
@@ -208,8 +242,25 @@ else:
             },
         )
 
+    def get_queue_depth() -> Optional[int]:
+        if celery_app is None:
+            return None
+        try:
+            inspector = celery_app.control.inspect()
+            reserved = inspector.reserved() or {}
+            scheduled = inspector.scheduled() or {}
+            active = inspector.active() or {}
+
+            def _count(tasks: Dict[str, Any]) -> int:
+                return sum(len(v or []) for v in tasks.values())
+
+            return _count(reserved) + _count(scheduled) + _count(active)
+        except Exception:  # pragma: no cover - best effort metric
+            return None
+
     __all__ = [
         "celery_app",
         "enqueue_diff_review",
         "enqueue_github_review",
+        "get_queue_depth",
     ]
