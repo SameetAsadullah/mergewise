@@ -6,8 +6,13 @@ MergeWise is designed as a modular, service-oriented FastAPI application that la
 
 ### FastAPI Transport (`app.py`)
 - Exposes REST endpoints: `/health`, `/review`, `/review/github`, and `/github/webhook`.
-- Creates per-request context service and review engine instances.
-- Converts structured review results into GitHub Checks.
+- Delegates all review execution to `ReviewService`, keeping HTTP handlers thin.
+- Serializes structured review results (or queue job IDs) back to the caller.
+
+### Application Services (`src/services/review.py`)
+- `ReviewService` orchestrates queue vs. inline execution, context construction, and GitHub check updates.
+- `ReviewQueue` wraps Celery enqueue helpers so the app can detect queue failures and fall back gracefully.
+- `ReviewOutcome` carries either a Celery `task_id` or inline results plus any queue error for observability.
 
 ### Review Engine (`src/reviewer.py`)
 - `ReviewEngine` orchestrates diff parsing, context retrieval, and LLM prompts.
@@ -34,14 +39,15 @@ MergeWise is designed as a modular, service-oriented FastAPI application that la
 
 ## Data Flow
 1. **Webhook or Manual Review** – PR event triggers `/github/webhook` (or `/review/github`).
-2. **Fetch PR Context** – `GitHubClient` retrieves title, diff, and base SHA.
-3. **Ensure Index** – `RepositoryContextService` rebuilds or reuses FAISS index for base commit and touched files.
-4. **Review Loop** – `ReviewEngine`:
+2. **Orchestration** – `ReviewService` enqueues work (Celery/Redis) or runs the review inline based on `ENABLE_TASK_QUEUE`.
+3. **Fetch PR Context** – `GitHubClient` retrieves title, diff, and base SHA.
+4. **Ensure Index** – `RepositoryContextService` rebuilds or reuses FAISS index for base commit and touched files.
+5. **Review Loop** – `ReviewEngine`:
    - Splits diff per file.
    - Retrieves contextual snippets (docs, code) from FAISS.
    - Prompts OpenAI with diff + context to get structured findings.
 5. **Aggregation** – Summaries, counts, and per-file diffs collected.
-6. **GitHub Reporting** – `build_github_annotations` formats rationale/patch suggestions; `GitHubClient` creates or updates the check run with summary + annotations.
+6. **GitHub Reporting** – `ReviewService` calls `build_github_annotations` and `create_or_update_check_run` to publish summary + annotations.
 
 ## Extensibility Points
 - Swap embedding model or FAISS index type by configuring `ContextConfig`.
@@ -59,8 +65,12 @@ MergeWise is designed as a modular, service-oriented FastAPI application that la
 ## Sequence Diagram
 ```
 GitHub -> FastAPI (/github/webhook)
-FastAPI -> GitHubClient: get PR details
-FastAPI -> RepositoryContextService: ensure_index(paths)
+FastAPI -> ReviewService: process_pull_request_event
+ReviewService -> ReviewQueue: enqueue_github (if enabled)
+alt inline fallback
+    ReviewService -> GitHubClient: get PR details
+    ReviewService -> RepositoryContextService: ensure_index(paths)
+end
 RepositoryContextService -> GitHub: fetch tree + file contents
 RepositoryContextService -> OpenAI: create embeddings
 RepositoryContextService -> FaissVectorStore: replace/add documents
