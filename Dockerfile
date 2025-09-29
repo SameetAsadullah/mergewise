@@ -1,7 +1,8 @@
 FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
@@ -19,6 +20,9 @@ RUN pip install --upgrade pip && \
 
 COPY . .
 
+RUN chmod +x /app/docker-entrypoint.sh
+
 EXPOSE 8000
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["web"]
