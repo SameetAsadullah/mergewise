@@ -47,7 +47,7 @@ source venv/bin/activate
 uvicorn app:app --reload
 ```
 Useful endpoints:
-- `GET /health` – basic readiness probe
+- `GET /health` – lightweight readiness probe
 - `POST /review` – review an arbitrary diff payload
 - `POST /review/github` – review by owner/repo/pr number
 - `POST /github/webhook` – GitHub webhook handler (HMAC verified if secret set)
