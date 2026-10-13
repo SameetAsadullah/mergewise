@@ -12,7 +12,7 @@ Want reviews without deploying anything? Share or install the hosted MergeWise G
 All secrets stay in the infrastructure you manage; installing organizations never see or provide credentials.
 
 ## Self-Hosted Setup (Developers & Recruiters)
-Run MergeWise locally or in your own cloud to inspect the architecture, extend features, or demo operational maturity.
+Run MergeWise locally or in your own cloud to inspect the architecture, extend features, or verify operational behavior.
 
 ### 1. Clone & install dependencies
 ```bash
@@ -90,7 +90,7 @@ Prefer to run everything yourself?
 
 ## Why This Stands Out in Production
 - **Production readiness** – Celery/Redis queue, rotating file logs, structured telemetry, and validation show real deployment discipline.
-- **Context aware intelligence** – FAISS embeddings, AST-aware chunking, and reranking demonstrate modern RAG patterns beyond prompt tinkering.
+- **Context aware intelligence** – FAISS embeddings, AST-aware chunking, and reranking implement modern RAG patterns beyond prompt tinkering.
 - **Security conscious** – HMAC webhook verification, short-lived GitHub installation tokens, and inline fallback for restricted environments.
 - **Extensible architecture** – `ReviewService`, `ReviewQueue`, context providers, and validators keep new features isolated and testable.
 
