@@ -119,6 +119,8 @@ Prefer to run everything yourself?
 4. **LLM prompts** – `ReviewEngine` sends the diff + context to OpenAI, enforcing strict JSON findings (severity, rationale, recommendation, patch).
 5. **Aggregation & reporting** – Summaries, severity counts, and per-file diffs feed into GitHub Check annotations with fix-ready code snippets.
 
+With `ENABLE_TASK_QUEUE=0`, the API completes the review inline. With the queue enabled, it returns a Celery task ID while a worker processes the review. If the queue is unavailable, the service falls back to inline execution and includes `queue_error` in the response.
+
 ## Running Tests
 ```bash
 source venv/bin/activate
